@@ -1,0 +1,62 @@
+name: deploy
+
+# Continuous deployment to Streamlit Community Cloud.
+# Called by ci.yml after a green build on main. Community Cloud watches the
+# `streamlit-release` branch and redeploys when it changes.
+on:
+  workflow_call:
+    inputs:
+      sha:
+        required: true
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push the release branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Add "required reviewers" to this environment in GitHub settings to turn
+    # Continuous Deployment into Continuous Delivery (manual approval gate).
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Get the model that passed the quality gate
+        uses: actions/download-artifact@v4
+        with:
+          name: model-and-experiments
+          path: .
+
+      - name: Assemble release tree (runtime files only)
+        env:
+          SHA: ${{ inputs.sha }}
+        run: python -m insurance.release build --out release --sha "$SHA"
+
+      - name: Publish to the streamlit-release branch
+        env:
+          SHA: ${{ inputs.sha }}
+          TREE: release
+          REMOTE_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: ./scripts/publish_release.sh
+
+      - name: Verify the live app serves this commit
+        if: vars.APP_URL != ''
+        env:
+          SHA: ${{ inputs.sha }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: python -m insurance.release verify --url "$APP_URL" --sha "$SHA"
+
+      - name: Note when verification is skipped
+        if: vars.APP_URL == ''
+        run: echo "::notice::APP_URL variable is not set, so the live app was not verified. See README."

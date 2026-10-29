@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+logs.log
+mlruns/
+mlartifacts/
+# trained artifacts are built by CI, not committed
+models/*
+!models/.gitkeep

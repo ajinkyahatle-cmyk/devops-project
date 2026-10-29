@@ -1,0 +1,57 @@
+name: rollback
+
+# Redeploy an earlier release. Find the commit on the `streamlit-release` branch
+# (each one is titled "Release <source sha>"), then run this workflow with it.
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: "Commit on streamlit-release to roll back to (full or short SHA)"
+        required: true
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: streamlit-release
+          fetch-depth: 0
+
+      - name: Point the release branch at the chosen commit
+        env:
+          COMMIT: ${{ inputs.release_commit }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${COMMIT}^{commit}"
+          git merge-base --is-ancestor "$COMMIT" origin/streamlit-release
+          echo "EXPECTED_SHA=$(git show "${COMMIT}:static/version.json" | jq -r .git_sha)" >> "$GITHUB_ENV"
+          git push --force origin "${COMMIT}:refs/heads/streamlit-release"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # the release branch deliberately does not contain deployment tooling
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+
+      - name: Verify the live app now serves the rolled-back version
+        if: vars.APP_URL != ''
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        # release.py needs only the standard library
+        run: python main-src/insurance/release.py verify --url "$APP_URL" --sha "$EXPECTED_SHA"

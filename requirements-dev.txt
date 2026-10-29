@@ -1,0 +1,4 @@
+pytest>=8
+ruff>=0.5
+# experiment tracking is used in CI/training only; it is not shipped in the image
+mlflow==2.16.2  # newer 2.x breaks pycaret 3.3.2 logging
